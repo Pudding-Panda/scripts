@@ -1,0 +1,33 @@
+---
+# This script creates a new check on Nodo's AppBeat account.
+# You can use the `secret` variable to determine which account the check gets put into.
+- name: ">> Creating checks <<"
+  hosts: localhost
+  vars:
+    check_url: "{{ lookup('env', 'CHECK_URL') | mandatory }}"
+    check_description: "{{ lookup('env', 'CHECK_DESC') | default('true', 'Website')}}"
+    check_interval_seconds: "{{ lookup('env', 'CHECK_INTERVAL') | mandatory }}"
+    secret: "CEcjWZYNyU%2BlF6aPWiJXow84Iwcnj6e5ki98uriuxcr9SSiUA%2B0yEWhUnlryg%2Be5KUM950c"
+  tasks:
+    - name: "-- sending post data"
+      uri:
+        url: "https://web2.appbeat.io/API/v1/new-check?secret={{ secret }}"
+        method: POST
+        headers:
+          Content_Type: "application/json"
+        body_format: json
+        body: '{
+                 "Agent": "AdvancedWeb",
+                 "CheckIntervalInSeconds": "{{ check_interval_seconds }}",
+                 "ConsecutiveFailedChecksNotificationThreshold": 5,
+                 "ResendNotificationOnFailure": 3,
+                 "Name": "{{ check_url }}",
+                 "Description":"{{ check_description }}",
+                 "AgentSpecificSettings": {
+                      "URL":"{{ check_url }}",
+                      "TIMEOUT":"15",
+                      "METHOD":"GET",
+                      "HTTP_VER":"http1.1",
+                      "IP_VER":"ipv4"
+                 }
+               }'

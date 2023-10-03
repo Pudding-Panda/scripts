@@ -1,0 +1,7 @@
+#!/usr/bin/env ansible-playbook
+---
+- name: Update Frita Backend
+  hosts: localhost
+  tasks:
+    - name: Pop up docker-compose system
+      shell: ssh root@fritabatatariaesaladeria.com.br docker-compose -f /home/ubuntu/frita-backend/docker-compose.yml up -d --force-recreate --build app

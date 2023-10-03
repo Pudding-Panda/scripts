@@ -1,0 +1,29 @@
+config:
+  target: "https://topway.school"
+  phases:
+    - duration: 60
+      arrivalCount: ####
+      name: "Create #### users in 60 seconds"
+  defaults:
+    headers:
+      Content-type: "application/json;charset=UTF-8"
+  payload:
+    path: "users.csv"
+    fields:
+      - "username"
+      - "password"
+    order: "sequence"
+scenarios:
+  - name: "Authentication followed by pull"
+    flow:
+      - post:
+          url: "/ws/api/user/auth"
+          form:
+            username: "{{ username }}"
+            password: "{{ password }}"
+            version: "web"
+          capture:
+            json: "$.user.id"
+            as: "id"
+      - get:
+          url: "/ws/api/user/pull?user_id={{ id }}"

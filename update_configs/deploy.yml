@@ -1,0 +1,16 @@
+---
+- name: ">> bootstrap <<"
+  import_playbook: bootstrap.yml
+
+- name: ">> deploy <<"
+  hosts: remote-hosts
+  tasks:
+    - name: "-- transfer configuration files"
+      unarchive:
+        src: "{{ item }}"
+        dest: "/root"
+        owner: root
+        group: root
+        mode: 0555
+      with_items:
+        - "{{ target_configurations }}"

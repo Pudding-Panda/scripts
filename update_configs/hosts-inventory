@@ -1,0 +1,27 @@
+[all:vars]
+
+###
+# builder variables
+###
+
+build_git_folder="{{ lookup('env', 'WORKSPACE') | default(ansible_env.HOME+'/workspace/infrastructure/configs', true) }}"
+build_artifacts_folder="/tmp/artifacts"
+
+build_folders=["{{ build_artifacts_folder }}", "{{ build_git_folder }}"]
+
+###
+# target variables
+###
+
+target_contexts=["{{ project_context }}"]
+target_configurations=["{{ build_artifacts_folder }}/configs_{{ project_context }}.tar.xz"]
+
+###
+# shared variables
+###
+
+project_repository="git@code.nodo.cc:infrastructure/configs.git"
+project_branch="master"
+project_context="{{ lookup('env', 'CONTEXT') | default('production',true) }}"
+
+

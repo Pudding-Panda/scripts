@@ -1,0 +1,11 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongIngress
+metadata:
+  annotations: {}
+  labels:
+    app: ids-scrapper
+    enviroment: prd
+  name: scrapyd-strip-path
+  namespace: ids-scrapper
+route:
+  strip_path: true

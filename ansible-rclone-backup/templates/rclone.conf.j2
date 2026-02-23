@@ -1,0 +1,9 @@
+[{{ backup_remote_name }}]
+type = s3
+provider = DigitalOcean
+env_auth = false
+access_key_id = {{ do_spaces_access_key }}
+secret_access_key = {{ do_spaces_secret_key }}
+endpoint = {{ do_spaces_endpoint }}
+acl = private
+region = {{ do_spaces_region }}

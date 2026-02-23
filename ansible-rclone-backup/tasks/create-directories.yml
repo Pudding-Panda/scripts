@@ -1,0 +1,16 @@
+---
+- name: Create rclone configuration directory
+  ansible.builtin.file:
+    path: "{{ rclone_config_dir }}"
+    state: directory
+    mode: "0755"
+    owner: root
+    group: root
+
+- name: Create backup log directory
+  ansible.builtin.file:
+    path: "{{ backup_log_dir }}"
+    state: directory
+    mode: "{{ log_dir_mode }}"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"

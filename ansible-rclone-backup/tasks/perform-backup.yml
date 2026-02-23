@@ -1,0 +1,39 @@
+---
+- name: Set backup timestamp
+  ansible.builtin.set_fact:
+    backup_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+    backup_log_file: "{{ backup_log_dir }}/backup-{{ ansible_date_time.iso8601_basic_short }}.log"
+
+- name: Perform rclone sync to DigitalOcean Spaces
+  ansible.builtin.command: >
+    rclone sync {{ backup_source }} {{ backup_remote_name }}:{{ backup_bucket_name }}/{{ backup_path }}
+    --config={{ rclone_config_file }}
+    {% for pattern in backup_exclude_patterns %}
+    --exclude='{{ pattern }}'
+    {% endfor %}
+    --transfers={{ rclone_transfers }}
+    --checkers={{ rclone_checkers }}
+    --contimeout={{ rclone_con_timeout }}
+    --timeout={{ rclone_timeout }}
+    --retries={{ rclone_retries }}
+    --low-level-retries={{ rclone_low_level_retries }}
+    --log-file={{ backup_log_file }}
+    --verbose
+    --stats=30s
+    --stats-one-line
+    --human-readable
+    {% if rclone_bwlimit %}
+    --bwlimit={{ rclone_bwlimit }}
+    {% endif %}
+    {% for flag in rclone_extra_flags %}
+    {{ flag }}
+    {% endfor %}
+  register: rclone_backup_result
+  async: 86400
+  poll: 10
+  no_log: true
+
+- name: Set backup result fact
+  ansible.builtin.set_fact:
+    backup_success: "{{ rclone_backup_result.rc == 0 }}"
+    backup_log_path: "{{ backup_log_file }}"

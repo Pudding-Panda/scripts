@@ -1,0 +1,25 @@
+---
+- name: Install rclone (Debian/Ubuntu)
+  ansible.builtin.apt:
+    name: rclone
+    state: present
+    update_cache: yes
+  when: ansible_os_family == "Debian"
+
+- name: Install rclone (RedHat/CentOS/Fedora)
+  ansible.builtin.yum:
+    name: rclone
+    state: present
+  when: ansible_os_family == "RedHat"
+
+- name: Install rclone (Arch Linux)
+  community.general.pacman:
+    name: rclone
+    state: present
+  when: ansible_os_family == "Archlinux"
+
+- name: Verify rclone is installed
+  ansible.builtin.command: which rclone
+  register: rclone_check
+  changed_when: false
+  failed_when: rclone_check.rc != 0

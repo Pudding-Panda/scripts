@@ -1,0 +1,18 @@
+---
+- name: Deploy rclone configuration file
+  ansible.builtin.template:
+    src: rclone.conf.j2
+    dest: "{{ rclone_config_file }}"
+    mode: "{{ rclone_config_mode }}"
+    owner: "{{ backup_user }}"
+    group: "{{ backup_group }}"
+    backup: yes
+  no_log: true
+
+- name: Verify rclone configuration
+  ansible.builtin.command: >
+    rclone config show
+    --config={{ rclone_config_file }}
+  register: rclone_config_check
+  changed_when: false
+  no_log: true

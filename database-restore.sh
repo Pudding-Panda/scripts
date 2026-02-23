@@ -13,6 +13,6 @@ export TODAY=$(date +%y%m%dT%H%M)
 
 FILENAME="${TODAY}-${FDB}_${TDB}.sql"
 
-ssh root@${FH} "mysqldump --quick --single-transaction ${FDB} |gzip -9 -- > ${FILENAME}.gz"
+ssh root@${FH} "mysqldump --quick --single-transaction ${FDB} |gzip -9 --" > ${FILENAME}.gz
 scp ${FILENAME}.gz root@${TH}:${FILENAME}.gz
 ssh root@${TH} "gunzip ${FILENAME}.gz && mysql ${TDB} < ${FILENAME} && rm ${FILENAME}"

@@ -1,0 +1,52 @@
+# Sensitive configuration files
+vars/main.yml
+inventory
+inventory.*
+*.inventory
+
+# Ansible Vault password files
+.vault_pass
+.vault_password
+*.vault
+
+# Ansible retry files
+*.retry
+
+# Log files
+*.log
+logs/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE/Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Ansible
+.ansible/
+*.tmp
+
+# Credentials and secrets
+*credentials*
+*secrets*
+*.key
+*.pem

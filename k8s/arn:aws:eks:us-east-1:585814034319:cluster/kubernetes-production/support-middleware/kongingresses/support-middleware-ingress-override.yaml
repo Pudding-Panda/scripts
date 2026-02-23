@@ -1,0 +1,11 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongIngress
+metadata:
+  annotations: {}
+  name: support-middleware-ingress-override
+  namespace: support-middleware
+proxy:
+  connect_timeout: 600000
+  protocol: http
+  read_timeout: 600000
+  write_timeout: 600000

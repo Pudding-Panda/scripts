@@ -1,0 +1,49 @@
+---
+- name: Restore from backup
+  hosts: all
+  become: yes
+  vars_files:
+    - vars/main.yml
+  vars:
+    restore_destination: "/restore"
+    restore_source_path: ""
+    restore_dry_run: false
+
+  tasks:
+    - name: Verify rclone
+      ansible.builtin.command: which rclone
+      register: rclone_check
+      changed_when: false
+      failed_when: rclone_check.rc != 0
+
+    - name: Check config
+      ansible.builtin.stat:
+        path: "{{ rclone_config_file }}"
+      register: config_check
+      failed_when: not config_check.stat.exists
+
+    - name: Create restore directory
+      ansible.builtin.file:
+        path: "{{ restore_destination }}"
+        state: directory
+        mode: "0755"
+        owner: root
+        group: root
+
+    - name: Set restore path
+      ansible.builtin.set_fact:
+        restore_remote_path: "{{ backup_remote_name }}:{{ backup_bucket_name }}/{{ backup_path }}{{ restore_source_path }}"
+
+    - name: Perform restore
+      ansible.builtin.command: >
+        rclone sync {{ restore_remote_path }} {{ restore_destination }}
+        --config={{ rclone_config_file }}
+        --dry-run={{ restore_dry_run }}
+        --transfers={{ rclone_transfers }}
+        --checkers={{ rclone_checkers }}
+        --contimeout={{ rclone_con_timeout }}
+        --timeout={{ rclone_timeout }}
+      register: restore_result
+      async: 86400
+      poll: 10
+      no_log: true

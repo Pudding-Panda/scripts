@@ -1,0 +1,49 @@
+---
+- name: Run backup
+  hosts: all
+  become: yes
+  vars_files:
+    - vars/main.yml
+
+  tasks:
+    - name: Install rclone
+      ansible.builtin.include_tasks: tasks/install-rclone.yml
+
+    - name: Create directories
+      ansible.builtin.include_tasks: tasks/create-directories.yml
+
+    - name: Deploy config
+      ansible.builtin.include_tasks: tasks/deploy-configuration.yml
+
+    - name: Test connection
+      ansible.builtin.include_tasks: tasks/test-connection.yml
+
+    - name: Set time for backup
+      set_fact:
+        logfile_timestamp: "{{ ansible_date_time.iso8601_basic_short }}"
+
+    - name: Output rclone log file location to user
+      debug:
+        msg: "rClone Log File: {{ backup_log_dir }}/backup-{{ logfile_timestamp }}.log"
+
+    - name: Perform backup
+      ansible.builtin.command: >
+        rclone sync {{ backup_source }} {{ backup_remote_name }}:{{ backup_bucket_name }}/{{ backup_path }}
+        --config={{ rclone_config_file }}
+        {% for pattern in backup_exclude_patterns %}
+        --exclude='{{ pattern }}'
+        {% endfor %}
+        --transfers={{ rclone_transfers }}
+        --checkers={{ rclone_checkers }}
+        --contimeout={{ rclone_con_timeout }}
+        --timeout={{ rclone_timeout }}
+        --retries={{ rclone_retries }}
+        --low-level-retries={{ rclone_low_level_retries }}
+        --log-file={{ backup_log_dir }}/backup-{{ logfile_timestamp }}.log
+        --stats=60s
+        --stats-one-line
+        --human-readable
+        --stats-log-level=NOTICE
+        {% if rclone_bwlimit %}
+        --bwlimit={{ rclone_bwlimit }}
+        {% endif %}

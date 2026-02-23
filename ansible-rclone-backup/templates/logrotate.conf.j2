@@ -1,0 +1,29 @@
+{{ backup_log_dir }}/*.log {
+{% if log_rotation_config.daily %}
+    daily
+{% endif %}
+{% if log_rotation_config.rotate is defined %}
+    rotate {{ log_rotation_config.rotate }}
+{% endif %}
+{% if log_rotation_config.compress %}
+    compress
+{% endif %}
+{% if log_rotation_config.delaycompress %}
+    delaycompress
+{% endif %}
+{% if log_rotation_config.missingok %}
+    missingok
+{% endif %}
+{% if log_rotation_config.notifempty %}
+    notifempty
+{% endif %}
+{% if log_rotation_config.create %}
+    create 0640 {{ backup_user }} {{ backup_group }}
+{% endif %}
+{% if log_rotation_config.dateext is defined and log_rotation_config.dateext %}
+    dateext
+{% endif %}
+{% if log_rotation_config.dateformat is defined %}
+    dateformat {{ log_rotation_config.dateformat }}
+{% endif %}
+}

@@ -1,0 +1,13 @@
+---
+- name: Test connection
+  ansible.builtin.command: >
+    rclone lsd {{ backup_remote_name }}:{{ backup_bucket_name }}
+    --config={{ rclone_config_file }}
+  register: do_spaces_test
+  changed_when: false
+  ignore_errors: yes
+  no_log: true
+
+- name: Set connection status
+  ansible.builtin.set_fact:
+    backup_connection_ok: "{{ do_spaces_test.rc == 0 }}"

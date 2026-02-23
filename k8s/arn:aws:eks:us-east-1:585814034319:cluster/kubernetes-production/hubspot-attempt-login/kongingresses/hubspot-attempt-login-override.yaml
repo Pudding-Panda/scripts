@@ -1,0 +1,14 @@
+apiVersion: configuration.konghq.com/v1
+kind: KongIngress
+metadata:
+  annotations: {}
+  labels:
+    app: hubspot-attempt-login
+    enviroment: prd
+  name: hubspot-attempt-login-override
+  namespace: hubspot-attempt-login
+proxy:
+  connect_timeout: 1200000
+  protocol: http
+  read_timeout: 1200000
+  write_timeout: 1200000

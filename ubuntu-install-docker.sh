@@ -16,4 +16,5 @@ echo "deb [arch=\"$(dpkg --print-architecture)\" signed-by=/etc/apt/keyrings/doc
 apt update
 apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
 
-
+CURR_USER=$(whoami)
+sudo usermod -aG docker $CURR_USER

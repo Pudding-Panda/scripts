@@ -1,0 +1,33 @@
+{
+  "users": {
+    "root": {
+      "default_client": "ppanda",
+      "home": "/root",
+      "workspace_dirs": {
+        "/root/workspace/bridge": "bridgemt",
+        "/root/workspace/ppanda": "ppanda"
+      },
+      "cwd_overrides": {}
+    },
+    "zeroum": {
+      "default_client": "zeroum",
+      "home": "/home/zeroum",
+      "cwd_overrides": {}
+    },
+    "bridgemt": {
+      "default_client": "bridgemt",
+      "home": "/home/bridgemt",
+      "cwd_overrides": {}
+    },
+    "utech": {
+      "default_client": "utech",
+      "home": "/home/utech",
+      "cwd_overrides": {}
+    },
+    "bilhon": {
+      "default_client": "bilhon",
+      "home": "/home/bilhon",
+      "cwd_overrides": {}
+    }
+  }
+}

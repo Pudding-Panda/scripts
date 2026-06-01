@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 """
 Weekly devtime report emailer.
-Pulls report from devtime server API, formats HTML email, sends via AWS SES.
-Run via Jenkins cron or manually: python3 weekly_report_email.py [--days 7]
+Pulls report from devtime server API, formats HTML email, sends via SendGrid SMTP.
+Run via Jenkins cron or manually:
+  python3 weekly_report_email.py [--days 7]
+  python3 weekly_report_email.py --from 2026-05-25 --to 2026-06-01
+  python3 weekly_report_email.py --all-weeks            # retroactive, one email per ISO week since conception
+
+Two metrics are reported per client:
+  Active (engagement) - real active hours: per-day (first prompt -> last prompt) + tolerance tail.
+  Query usage         - model query time: heartbeats merged within `interval`, idle gaps > interval dropped.
 """
 
 import argparse
+import calendar
 import json
 import os
 import smtplib
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime, date, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -42,57 +51,85 @@ def get_smtp_creds():
     }
 
 
-def fetch_report(days, interval=60, tolerance=30):
-    url = f"{DEVTIME_URL}?days={days}&interval={interval}&tolerance={tolerance}"
-    with urllib.request.urlopen(url, timeout=10) as resp:
+def fetch_report(days=7, interval=60, tolerance=30, frm=None, to=None):
+    q = {"interval": interval, "tolerance": tolerance}
+    if frm is not None:
+        q["from"] = int(frm)
+        if to is not None:
+            q["to"] = int(to)
+    else:
+        q["days"] = days
+    url = f"{DEVTIME_URL}?{urllib.parse.urlencode(q)}"
+    with urllib.request.urlopen(url, timeout=15) as resp:
         return json.loads(resp.read())
 
 
-def format_html(report, days):
-    end = datetime.now()
-    start = end - timedelta(days=days)
+def _hm(seconds):
+    h = seconds // 3600
+    m = (seconds % 3600) // 60
+    return f"{h}h {m:02d}m" if h > 0 else f"{m}m"
 
+
+def _hhmm(epoch, offset):
+    return datetime.fromtimestamp(epoch + offset, timezone.utc).strftime("%H:%M")
+
+
+def format_html(report, start, end):
     clients = report["by_client"]
     daily = report["by_day"]
 
     rows = ""
-    for client, data in sorted(clients.items(), key=lambda x: -x[1]["total_seconds"]):
+    for client, data in sorted(clients.items(), key=lambda x: -x[1]["engagement_seconds"]):
         rows += f"""<tr>
             <td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:bold">{client}</td>
-            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['total_human']}</td>
-            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['sessions']}</td>
+            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;color:#6c5ce7">{data['engagement_human']}</td>
+            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right;color:#888">{data['total_human']}</td>
             <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['heartbeats']}</td>
-            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['share_pct']}%</td>
+            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['engagement_share_pct']}%</td>
         </tr>"""
 
+    off = report.get("tz_offset_seconds", 0)
     daily_rows = ""
     for day in sorted(daily.keys()):
-        day_clients = daily[day]
-        day_total = sum(c["total_seconds"] for c in day_clients.values())
-        h = day_total // 3600
-        m = (day_total % 3600) // 60
-        day_total_str = f"{h}h {m:02d}m" if h > 0 else f"{m}m"
-
-        parts = sorted(day_clients.items(), key=lambda x: -x[1]["total_seconds"])
-        breakdown = ", ".join(f"{c}: {d['total_human']}" for c, d in parts)
+        dd = daily[day]
+        day_clients = dd["clients"]
+        day_eng = dd["engagement_seconds"]
+        day_use = dd["total_seconds"]
+        day_start = _hhmm(dd["start_epoch"], off)
+        end_local = datetime.fromtimestamp(dd["end_epoch"] + off, timezone.utc)
+        day_end = end_local.strftime("%H:%M")
+        if end_local.date().isoformat() > day:
+            day_end += " (ND)"
+        parts = sorted(day_clients.items(), key=lambda x: -x[1]["engagement_seconds"])
+        breakdown = ", ".join(f"{c}: {d['engagement_human']}" for c, d in parts)
         daily_rows += f"""<tr>
             <td style="padding:4px 12px;border-bottom:1px solid #eee">{day}</td>
-            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right">{day_total_str}</td>
+            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">{day_start}</td>
+            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">{day_end}</td>
+            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">{_hm(day_eng)}</td>
+            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;color:#888">{_hm(day_use)}</td>
             <td style="padding:4px 12px;border-bottom:1px solid #eee;font-size:13px;color:#666">{breakdown}</td>
         </tr>"""
 
-    return f"""<html><body style="font-family:-apple-system,Helvetica,Arial,sans-serif;color:#333;max-width:700px;margin:0 auto">
+    return f"""<html><body style="font-family:-apple-system,Helvetica,Arial,sans-serif;color:#333;max-width:760px;margin:0 auto">
     <h2 style="color:#2d3436;border-bottom:2px solid #6c5ce7;padding-bottom:8px">
         Developer Time Report — {start.strftime('%b %d')} to {end.strftime('%b %d, %Y')}
     </h2>
 
-    <p style="font-size:22px;font-weight:bold;color:#6c5ce7">Total: {report['total_human']}</p>
+    <p style="font-size:22px;font-weight:bold;color:#6c5ce7">Active: {report['engagement_human']}
+        <span style="font-size:15px;color:#888;font-weight:normal">&nbsp;·&nbsp; Query usage: {report['total_human']}</span></p>
+
+    <p style="font-size:12px;color:#888;margin-top:-8px">
+        <b>Active (engagement)</b> = real active hours (first prompt to last prompt per day + tolerance tail).
+        <b>Query usage</b> = model query time (heartbeats merged within {report['interval_minutes']}m; idle gaps over {report['interval_minutes']}m dropped).
+        Top-line Active is deduped wall-clock; per-client Active rows can overlap (same dev across clients in a day) so they sum higher.
+    </p>
 
     <table style="border-collapse:collapse;width:100%;margin:16px 0">
         <tr style="background:#f8f9fa">
             <th style="padding:8px 12px;text-align:left">Client</th>
-            <th style="padding:8px 12px;text-align:right">Time</th>
-            <th style="padding:8px 12px;text-align:right">Sessions</th>
+            <th style="padding:8px 12px;text-align:right">Active</th>
+            <th style="padding:8px 12px;text-align:right">Query usage</th>
             <th style="padding:8px 12px;text-align:right">Heartbeats</th>
             <th style="padding:8px 12px;text-align:right">Share</th>
         </tr>
@@ -103,8 +140,11 @@ def format_html(report, days):
     <table style="border-collapse:collapse;width:100%;margin:16px 0">
         <tr style="background:#f8f9fa">
             <th style="padding:6px 12px;text-align:left">Date</th>
-            <th style="padding:6px 12px;text-align:right">Total</th>
-            <th style="padding:6px 12px;text-align:left">Clients</th>
+            <th style="padding:6px 12px;text-align:right">Start</th>
+            <th style="padding:6px 12px;text-align:right">End</th>
+            <th style="padding:6px 12px;text-align:right">Active</th>
+            <th style="padding:6px 12px;text-align:right">Query usage</th>
+            <th style="padding:6px 12px;text-align:left">Clients (active)</th>
         </tr>
         {daily_rows}
     </table>
@@ -112,6 +152,7 @@ def format_html(report, days):
     <p style="font-size:12px;color:#999;margin-top:24px;border-top:1px solid #eee;padding-top:8px">
         Generated by devtime-server on jenkins.puddi.ng
         &middot; interval={report['interval_minutes']}m, tolerance={report['tolerance_minutes']}m
+        &middot; days/times in UTC{off // 3600:+d}
         &middot; <a href="https://devtime.apps.puddi.ng" style="color:#6c5ce7">Wakapi Dashboard</a>
     </p>
 </body></html>"""
@@ -130,33 +171,85 @@ def send_email(html, subject, smtp_creds):
         server.sendmail(smtp_creds["from_email"], [TO_EMAIL], msg.as_string())
 
 
+def subject_for(report, start, end, tag=""):
+    prefix = f"{tag} " if tag else ""
+    return (f"{prefix}Devtime Report: {start.strftime('%b %d')}–{end.strftime('%b %d')} "
+            f"— Active {report['engagement_human']} / Usage {report['total_human']}")
+
+
+def deliver(report, start, end, dry_run, smtp_creds, preview_path, tag=""):
+    html = format_html(report, start, end)
+    subject = subject_for(report, start, end, tag)
+    if dry_run:
+        print(f"[dry-run] {subject}  (clients={len(report['by_client'])})")
+        with open(preview_path, "w") as f:
+            f.write(html)
+        print(f"          preview: {preview_path}")
+        return
+    send_email(html, subject, smtp_creds)
+    print(f"Sent: {subject}")
+
+
+def iso_weeks_since(first_day):
+    """Yield (start_dt, end_dt) UTC for each Mon..Sun week from first_day's week to now."""
+    d = date.fromisoformat(first_day)
+    monday = d - timedelta(days=d.weekday())
+    ws = datetime(monday.year, monday.month, monday.day)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    while ws <= now:
+        we = ws + timedelta(days=7)
+        yield ws, we
+        ws = we
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=7)
     parser.add_argument("--interval", type=int, default=60)
     parser.add_argument("--tolerance", type=int, default=30)
+    parser.add_argument("--from", dest="frm", help="window start, YYYY-MM-DD (UTC)")
+    parser.add_argument("--to", dest="to", help="window end, YYYY-MM-DD (UTC)")
+    parser.add_argument("--all-weeks", action="store_true", help="send one report per ISO week since conception")
+    parser.add_argument("--tag", default="", help="subject-line prefix, e.g. [corrected]")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    report = fetch_report(args.days, args.interval, args.tolerance)
-    html = format_html(report, args.days)
+    smtp_creds = None if args.dry_run else get_smtp_creds()
 
-    end = datetime.now()
-    start = end - timedelta(days=args.days)
-    subject = f"Devtime Report: {start.strftime('%b %d')}–{end.strftime('%b %d')} — {report['total_human']}"
-
-    if args.dry_run:
-        print(f"Subject: {subject}")
-        print(f"To: {TO_EMAIL}")
-        print(f"Clients: {len(report['by_client'])}, Total: {report['total_human']}")
-        with open("/tmp/devtime-report-preview.html", "w") as f:
-            f.write(html)
-        print("Preview: /tmp/devtime-report-preview.html")
+    if args.all_weeks:
+        # Earliest day = min key of a wide-window report.
+        big = fetch_report(days=400, interval=args.interval, tolerance=args.tolerance)
+        if not big["by_day"]:
+            print("No heartbeats found.")
+            return
+        first_day = min(big["by_day"].keys())
+        print(f"Conception: {first_day}. Building weekly reports...")
+        sent = 0
+        for ws, we in iso_weeks_since(first_day):
+            frm = calendar.timegm(ws.timetuple())
+            to = calendar.timegm(we.timetuple()) - 1
+            report = fetch_report(interval=args.interval, tolerance=args.tolerance, frm=frm, to=to)
+            if report["engagement_seconds"] == 0 and report["total_seconds"] == 0:
+                print(f"[skip empty] {ws.date()}–{(we - timedelta(days=1)).date()}")
+                continue
+            deliver(report, ws, we - timedelta(days=1), args.dry_run, smtp_creds,
+                    f"/tmp/devtime-week-{ws.date()}.html", args.tag)
+            sent += 1
+        print(f"Done. {sent} weekly reports {'previewed' if args.dry_run else 'sent'}.")
         return
 
-    smtp_creds = get_smtp_creds()
-    send_email(html, subject, smtp_creds)
-    print(f"Sent to {TO_EMAIL}: {subject}")
+    if args.frm:
+        start = datetime.fromisoformat(args.frm)
+        end = datetime.fromisoformat(args.to) if args.to else datetime.now(timezone.utc).replace(tzinfo=None)
+        frm = calendar.timegm(start.timetuple())
+        to = calendar.timegm(end.timetuple())
+        report = fetch_report(interval=args.interval, tolerance=args.tolerance, frm=frm, to=to)
+    else:
+        end = datetime.now()
+        start = end - timedelta(days=args.days)
+        report = fetch_report(days=args.days, interval=args.interval, tolerance=args.tolerance)
+
+    deliver(report, start, end, args.dry_run, smtp_creds, "/tmp/devtime-report-preview.html", args.tag)
 
 
 if __name__ == "__main__":

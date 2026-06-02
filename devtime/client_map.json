@@ -1,0 +1,68 @@
+{
+  "users": {
+    "root": {
+      "default_client": "ppanda",
+      "home": "/root",
+      "workspace_dirs": {
+        "/root/workspace/bridge": "bridgemt",
+        "/root/workspace/ppanda": "ppanda"
+      },
+      "cwd_overrides": {
+        "rebecc-ai": "ppanda/rebecc-ai",
+        "mempalace": "ppanda/mempalace",
+        "ragtools": "ppanda/ragtools",
+        "ppanda-infrastructure": "ppanda/infra",
+        "ppanda-terraform": "ppanda/infra",
+        "ppanda-core": "ppanda/core",
+        "ppanda-scripts": "ppanda/scripts",
+        "ppanda-profiles": "ppanda/profiles",
+        "ppanda-website": "ppanda/website",
+        "ppanda-templates": "ppanda/templates",
+        "ppanda-ansimodules": "ppanda/ansible",
+        "ppanda-openinfra-maint-scripts": "ppanda/openinfra",
+        "ppanda-dockers": "ppanda/docker",
+        "ppanda-documents": "ppanda/docs",
+        "ppanda-cloud": "ppanda/cloud",
+        "ppanda-clusters": "ppanda/clusters",
+        "ppanda-public-infra": "ppanda/public-infra",
+        "agent-framework": "ppanda/agent-framework",
+        "backup-scripts": "ppanda/backup",
+        "rekinro": "ppanda/rekinro",
+        "bridge-one": "bridgemt/bridge-one",
+        "bridge-helicone": "bridgemt/helicone",
+        "bridge-infrastructure-clusters": "bridgemt/infra-clusters",
+        "bridge-infrastructure-servers": "bridgemt/infra-servers",
+        "bridge-infrastructure-ansible-roles": "bridgemt/ansible",
+        "bridge-infrastructure-scripts": "bridgemt/scripts",
+        "bridge-infrastructure-helm-charts": "bridgemt/helm",
+        "bridge-infrastructure-infrastructure": "bridgemt/infra",
+        "bridge-fitfirm-app": "bridgemt/fitfirm",
+        "bridge-bi-brainbot-back": "bridgemt/brainbot",
+        "bridge-bi-discover-agent": "bridgemt/discover-agent",
+        "bridge-bi-letter-generation": "bridgemt/letter-gen",
+        "bridge-bi-notebooks-hub": "bridgemt/notebooks",
+        "utech-clickdin-backend": "utech/clickdin"
+      }
+    },
+    "zeroum": {
+      "default_client": "zeroum",
+      "home": "/home/zeroum",
+      "cwd_overrides": {}
+    },
+    "bridgemt": {
+      "default_client": "bridgemt",
+      "home": "/home/bridgemt",
+      "cwd_overrides": {}
+    },
+    "utech": {
+      "default_client": "utech",
+      "home": "/home/utech",
+      "cwd_overrides": {}
+    },
+    "bilhon": {
+      "default_client": "bilhon",
+      "home": "/home/bilhon",
+      "cwd_overrides": {}
+    }
+  }
+}

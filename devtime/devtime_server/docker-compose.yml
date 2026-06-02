@@ -1,0 +1,21 @@
+services:
+  devtime:
+    build: .
+    container_name: devtime-server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:7879:7879"
+    volumes:
+      - devtime-data:/data
+      - ./client_map.json:/app/config/client_map.json:ro
+    extra_hosts:
+      - "devtime.apps.puddi.ng:host-gateway"
+    environment:
+      - DEVTIME_PORT=7879
+      - DEVTIME_DB_PATH=/data/devtime.db
+      - DEVTIME_CLIENT_MAP=/app/config/client_map.json
+      - WAKAPI_URL=https://devtime.apps.puddi.ng/api
+      - WAKAPI_API_KEY=${WAKAPI_API_KEY:?set in .env (1Password: PPD - Wakapi/devtime API Key)}
+
+volumes:
+  devtime-data:

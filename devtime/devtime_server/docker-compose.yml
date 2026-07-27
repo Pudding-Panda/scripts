@@ -15,7 +15,7 @@ services:
       - DEVTIME_DB_PATH=/data/devtime.db
       - DEVTIME_CLIENT_MAP=/app/config/client_map.json
       - WAKAPI_URL=https://devtime.apps.puddi.ng/api
-      - WAKAPI_API_KEY=${WAKAPI_API_KEY:?set in .env (1Password: PPD - Wakapi/devtime API Key)}
+      - "WAKAPI_API_KEY=${WAKAPI_API_KEY:?set in .env - see 1Password item 'PPD - Wakapi/devtime API Key'}"
 
 volumes:
   devtime-data:

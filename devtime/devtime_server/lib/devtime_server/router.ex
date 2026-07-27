@@ -23,7 +23,10 @@ defmodule DevtimeServer.Router do
       from: parse_int(params["from"], nil),
       to: parse_int(params["to"], nil),
       client: params["client"],
-      user: params["user"]
+      user: params["user"],
+      exclude_machine: parse_bool(params["exclude_machine"], true),
+      cadence_tolerance: parse_int(params["cadence_tolerance"], nil),
+      cadence_min_run: parse_int(params["cadence_min_run"], nil)
     ] |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
     report = DevtimeServer.Report.generate(opts)
@@ -123,7 +126,7 @@ defmodule DevtimeServer.Router do
       error: "not found",
       endpoints: [
         "GET  /api/health",
-        "GET  /api/report?days=7&interval=60&tolerance=30&from=EPOCH&to=EPOCH&client=X&user=X",
+        "GET  /api/report?days=7&interval=60&tolerance=30&from=EPOCH&to=EPOCH&client=X&user=X&exclude_machine=1",
         "GET  /api/heartbeats?days=1",
         "POST /api/heartbeat",
         "POST /api/heartbeat/batch",
@@ -146,4 +149,9 @@ defmodule DevtimeServer.Router do
     end
   end
   defp parse_int(val, _default) when is_integer(val), do: val
+
+  defp parse_bool(nil, default), do: default
+  defp parse_bool(val, _default) when val in ["0", "false", "no"], do: false
+  defp parse_bool(val, _default) when val in ["1", "true", "yes"], do: true
+  defp parse_bool(_val, default), do: default
 end

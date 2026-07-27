@@ -5,12 +5,27 @@ defmodule DevtimeServer.Report do
   # Fixed offset (Brazil has no DST since 2019), so no tzdata dependency needed.
   @default_tz_offset -10800
 
+  # Machine-generated heartbeats. A long-lived agent that re-prompts itself on a timer
+  # fires UserPromptSubmit like a human would, so it must be filtered out or it merges
+  # every block into a 24h day.
+  @machine_event_types ~w(auto scheduled loop wakeup cron)
+  # A run of consecutive heartbeats whose gaps are all equal within this many seconds
+  # is a timer, not a person.
+  @default_cadence_tolerance 5
+  # Minimum number of equal gaps (so min_run + 1 heartbeats) before a run counts as a timer.
+  @default_cadence_min_run 3
+  # Gaps shorter than this are human bursts; never treat them as cadence.
+  @min_cadence_s 300
+
   def generate(opts \\ []) do
     days = Keyword.get(opts, :days, 7)
     interval = Keyword.get(opts, :interval, @default_interval)
     tolerance = Keyword.get(opts, :tolerance, @default_tolerance)
     client_filter = Keyword.get(opts, :client)
     user_filter = Keyword.get(opts, :user)
+    exclude_machine = Keyword.get(opts, :exclude_machine, true)
+    cadence_tolerance = Keyword.get(opts, :cadence_tolerance, @default_cadence_tolerance)
+    cadence_min_run = Keyword.get(opts, :cadence_min_run, @default_cadence_min_run)
 
     from = Keyword.get(opts, :from)
     to = Keyword.get(opts, :to)
@@ -23,6 +38,13 @@ defmodule DevtimeServer.Report do
     heartbeats = Enum.map(rows, fn [_id, _ts, ts_epoch, user, client, project, cwd, session_id, event_type] ->
       %{ts_epoch: ts_epoch, user: user, client: client, project: project, cwd: cwd, session_id: session_id, event_type: event_type}
     end)
+
+    {heartbeats, machine_by_client} =
+      if exclude_machine do
+        drop_machine(heartbeats, cadence_tolerance, cadence_min_run)
+      else
+        {heartbeats, %{}}
+      end
 
     by_client = Enum.group_by(heartbeats, & &1.client)
     interval_s = interval * 60
@@ -60,7 +82,8 @@ defmodule DevtimeServer.Report do
           engagement_seconds: round(engagement),
           engagement_human: format_duration(engagement),
           sessions: length(blocks),
-          heartbeats: length(timestamps)
+          heartbeats: length(timestamps),
+          machine_heartbeats: Map.get(machine_by_client, client, 0)
         }}
       end)
       |> Enum.sort_by(fn {_, v} -> -v.engagement_seconds end)
@@ -81,6 +104,11 @@ defmodule DevtimeServer.Report do
       interval_minutes: interval,
       tolerance_minutes: tolerance,
       tz_offset_seconds: tz_offset_s,
+      exclude_machine: exclude_machine,
+      cadence_tolerance_seconds: cadence_tolerance,
+      cadence_min_run: cadence_min_run,
+      machine_heartbeats_excluded: machine_by_client |> Map.values() |> Enum.sum(),
+      machine_heartbeats_by_client: machine_by_client,
       from_epoch: cutoff,
       to_epoch: upper,
       total_seconds: round(wall_usage),
@@ -113,6 +141,78 @@ defmodule DevtimeServer.Report do
         u -> {sql <> " AND user = ?#{length(params) + 1}", params ++ [u]}
       end
     {sql <> " ORDER BY ts_epoch ASC", params}
+  end
+
+  # Returns {kept_heartbeats, %{client => dropped_count}}. Drops heartbeats the emitter
+  # already tagged as machine, then drops runs of fixed-cadence heartbeats (a timer-driven
+  # agent re-prompting itself) that no human could produce.
+  defp drop_machine(heartbeats, tolerance, min_run) do
+    {tagged, rest} = Enum.split_with(heartbeats, &(&1.event_type in @machine_event_types))
+
+    {kept, cadence_dropped} =
+      rest
+      |> Enum.group_by(& &1.client)
+      |> Enum.reduce({[], %{}}, fn {client, hbs}, {kept, dropped} ->
+        sorted = Enum.sort_by(hbs, & &1.ts_epoch)
+        client_kept = drop_cadence_runs(sorted, tolerance, min_run)
+        n = length(sorted) - length(client_kept)
+        {client_kept ++ kept, if(n > 0, do: Map.put(dropped, client, n), else: dropped)}
+      end)
+
+    counts =
+      Enum.reduce(tagged, cadence_dropped, fn hb, acc ->
+        Map.update(acc, hb.client, 1, &(&1 + 1))
+      end)
+
+    {kept, counts}
+  end
+
+  defp drop_cadence_runs(hbs, _tolerance, _min_run) when length(hbs) < 2, do: hbs
+  defp drop_cadence_runs(hbs, tolerance, min_run) do
+    timestamps = Enum.map(hbs, & &1.ts_epoch)
+    deltas = Enum.zip(timestamps, tl(timestamps)) |> Enum.map(fn {a, b} -> b - a end)
+    machine = cadence_indices(deltas, tolerance, min_run)
+
+    hbs
+    |> Enum.with_index()
+    |> Enum.reject(fn {_hb, i} -> MapSet.member?(machine, i) end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  # Delta i sits between heartbeat i and heartbeat i+1, so a run of equal deltas
+  # marks every heartbeat it touches.
+  defp cadence_indices(deltas, tolerance, min_run) do
+    {runs, current} =
+      deltas
+      |> Enum.with_index()
+      |> Enum.reduce({[], nil}, fn {delta, i}, {runs, current} ->
+        cond do
+          delta < @min_cadence_s ->
+            {close_run(runs, current, min_run), nil}
+
+          current == nil ->
+            {runs, {delta, [i]}}
+
+          true ->
+            {head, idxs} = current
+
+            if abs(delta - head) <= tolerance do
+              {runs, {head, [i | idxs]}}
+            else
+              {close_run(runs, current, min_run), {delta, [i]}}
+            end
+        end
+      end)
+
+    close_run(runs, current, min_run)
+    |> Enum.reduce(MapSet.new(), fn idxs, acc ->
+      Enum.reduce(idxs, acc, fn i, set -> set |> MapSet.put(i) |> MapSet.put(i + 1) end)
+    end)
+  end
+
+  defp close_run(runs, nil, _min_run), do: runs
+  defp close_run(runs, {_head, idxs}, min_run) do
+    if length(idxs) >= min_run, do: [idxs | runs], else: runs
   end
 
   defp compute_blocks([], _interval_s, _tolerance_s), do: []

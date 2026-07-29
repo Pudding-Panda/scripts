@@ -28,6 +28,11 @@
       "default_client": "bilhon",
       "home": "/home/bilhon",
       "cwd_overrides": {}
+    },
+    "cloudhumans": {
+      "default_client": "cloudhumans",
+      "home": "/home/cloudhumans",
+      "cwd_overrides": {}
     }
   }
 }

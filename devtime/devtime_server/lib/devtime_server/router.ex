@@ -18,7 +18,7 @@ defmodule DevtimeServer.Router do
 
     opts = [
       days: parse_int(params["days"], 7),
-      interval: parse_int(params["interval"], 60),
+      interval: parse_int(params["interval"], 30),
       tolerance: parse_int(params["tolerance"], 30),
       from: parse_int(params["from"], nil),
       to: parse_int(params["to"], nil),
@@ -126,7 +126,7 @@ defmodule DevtimeServer.Router do
       error: "not found",
       endpoints: [
         "GET  /api/health",
-        "GET  /api/report?days=7&interval=60&tolerance=30&from=EPOCH&to=EPOCH&client=X&user=X&exclude_machine=1",
+        "GET  /api/report?days=7&interval=30&tolerance=30&from=EPOCH&to=EPOCH&client=X&user=X&exclude_machine=1",
         "GET  /api/heartbeats?days=1",
         "POST /api/heartbeat",
         "POST /api/heartbeat/batch",

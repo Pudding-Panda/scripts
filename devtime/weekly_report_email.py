@@ -7,9 +7,9 @@ Run via Jenkins cron or manually:
   python3 weekly_report_email.py --from 2026-05-25 --to 2026-06-01
   python3 weekly_report_email.py --all-weeks            # retroactive, one email per ISO week since conception
 
-Two metrics are reported per client:
-  Active (engagement) - real active hours: per-day (first prompt -> last prompt) + tolerance tail.
-  Query usage         - model query time: heartbeats merged within `interval`, idle gaps > interval dropped.
+One metric is reported per client:
+  Query usage - model query time: heartbeats merged while gaps stay within `interval`,
+                each closed block gets a flat `tolerance` tail, longer idle gaps dropped.
 """
 
 import argparse
@@ -51,7 +51,7 @@ def get_smtp_creds():
     }
 
 
-def fetch_report(days=7, interval=60, tolerance=30, frm=None, to=None, exclude_machine=True):
+def fetch_report(days=7, interval=30, tolerance=30, frm=None, to=None, exclude_machine=True):
     q = {"interval": interval, "tolerance": tolerance, "exclude_machine": 1 if exclude_machine else 0}
     if frm is not None:
         q["from"] = int(frm)
@@ -79,13 +79,12 @@ def format_html(report, start, end):
     daily = report["by_day"]
 
     rows = ""
-    for client, data in sorted(clients.items(), key=lambda x: -x[1]["engagement_seconds"]):
+    for client, data in sorted(clients.items(), key=lambda x: -x[1]["total_seconds"]):
         rows += f"""<tr>
             <td style="padding:6px 12px;border-bottom:1px solid #eee;font-weight:bold">{client}</td>
-            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;color:#6c5ce7">{data['engagement_human']}</td>
-            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right;color:#888">{data['total_human']}</td>
+            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold;color:#6c5ce7">{data['total_human']}</td>
             <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['heartbeats']}</td>
-            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['engagement_share_pct']}%</td>
+            <td style="padding:6px 12px;border-bottom:1px solid #eee;text-align:right">{data['share_pct']}%</td>
         </tr>"""
 
     off = report.get("tz_offset_seconds", 0)
@@ -103,21 +102,19 @@ def format_html(report, start, end):
     for day in sorted(daily.keys()):
         dd = daily[day]
         day_clients = dd["clients"]
-        day_eng = dd["engagement_seconds"]
         day_use = dd["total_seconds"]
         day_start = _hhmm(dd["start_epoch"], off)
         end_local = datetime.fromtimestamp(dd["end_epoch"] + off, timezone.utc)
         day_end = end_local.strftime("%H:%M")
         if end_local.date().isoformat() > day:
             day_end += " (ND)"
-        parts = sorted(day_clients.items(), key=lambda x: -x[1]["engagement_seconds"])
-        breakdown = ", ".join(f"{c}: {d['engagement_human']}" for c, d in parts)
+        parts = sorted(day_clients.items(), key=lambda x: -x[1]["total_seconds"])
+        breakdown = ", ".join(f"{c}: {d['total_human']}" for c, d in parts)
         daily_rows += f"""<tr>
             <td style="padding:4px 12px;border-bottom:1px solid #eee">{day}</td>
             <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">{day_start}</td>
             <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-variant-numeric:tabular-nums">{day_end}</td>
-            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">{_hm(day_eng)}</td>
-            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;color:#888">{_hm(day_use)}</td>
+            <td style="padding:4px 12px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">{_hm(day_use)}</td>
             <td style="padding:4px 12px;border-bottom:1px solid #eee;font-size:13px;color:#666">{breakdown}</td>
         </tr>"""
 
@@ -126,20 +123,18 @@ def format_html(report, start, end):
         Developer Time Report — {start.strftime('%b %d')} to {end.strftime('%b %d, %Y')}
     </h2>
 
-    <p style="font-size:22px;font-weight:bold;color:#6c5ce7">Active: {report['engagement_human']}
-        <span style="font-size:15px;color:#888;font-weight:normal">&nbsp;·&nbsp; Query usage: {report['total_human']}</span></p>
+    <p style="font-size:22px;font-weight:bold;color:#6c5ce7">Query usage: {report['total_human']}</p>
 
     <p style="font-size:12px;color:#888;margin-top:-8px">
-        <b>Active (engagement)</b> = real active hours (first prompt to last prompt per day + tolerance tail).
-        <b>Query usage</b> = model query time (heartbeats merged within {report['interval_minutes']}m; idle gaps over {report['interval_minutes']}m dropped).
-        Top-line Active is deduped wall-clock; per-client Active rows can overlap (same dev across clients in a day) so they sum higher.
+        <b>Query usage</b> = model query time. Queries merge into one block while each gap stays
+        within {report['interval_minutes']}m; a block ends {report['tolerance_minutes']}m after its last query, and longer idle gaps count as nothing.
+        Top-line is deduped wall-clock; per-client rows can overlap (same dev across clients in a day) so they sum higher.
     </p>
     {machine_note}
 
     <table style="border-collapse:collapse;width:100%;margin:16px 0">
         <tr style="background:#f8f9fa">
             <th style="padding:8px 12px;text-align:left">Client</th>
-            <th style="padding:8px 12px;text-align:right">Active</th>
             <th style="padding:8px 12px;text-align:right">Query usage</th>
             <th style="padding:8px 12px;text-align:right">Heartbeats</th>
             <th style="padding:8px 12px;text-align:right">Share</th>
@@ -153,9 +148,8 @@ def format_html(report, start, end):
             <th style="padding:6px 12px;text-align:left">Date</th>
             <th style="padding:6px 12px;text-align:right">Start</th>
             <th style="padding:6px 12px;text-align:right">End</th>
-            <th style="padding:6px 12px;text-align:right">Active</th>
             <th style="padding:6px 12px;text-align:right">Query usage</th>
-            <th style="padding:6px 12px;text-align:left">Clients (active)</th>
+            <th style="padding:6px 12px;text-align:left">Clients (query usage)</th>
         </tr>
         {daily_rows}
     </table>
@@ -186,7 +180,7 @@ def send_email(html, subject, smtp_creds):
 def subject_for(report, start, end, tag=""):
     prefix = f"{tag} " if tag else ""
     return (f"{prefix}Devtime Report: {start.strftime('%b %d')}–{end.strftime('%b %d')} "
-            f"— Active {report['engagement_human']} / Usage {report['total_human']}")
+            f"— Usage {report['total_human']}")
 
 
 def deliver(report, start, end, dry_run, smtp_creds, preview_path, tag=""):
@@ -217,7 +211,7 @@ def iso_weeks_since(first_day):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=7)
-    parser.add_argument("--interval", type=int, default=60)
+    parser.add_argument("--interval", type=int, default=30)
     parser.add_argument("--tolerance", type=int, default=30)
     parser.add_argument("--from", dest="frm", help="window start, YYYY-MM-DD (UTC)")
     parser.add_argument("--to", dest="to", help="window end, YYYY-MM-DD (UTC)")
@@ -246,7 +240,7 @@ def main():
             to = calendar.timegm(we.timetuple()) - 1
             report = fetch_report(interval=args.interval, tolerance=args.tolerance, frm=frm, to=to,
                                   exclude_machine=exclude_machine)
-            if report["engagement_seconds"] == 0 and report["total_seconds"] == 0:
+            if report["total_seconds"] == 0:
                 print(f"[skip empty] {ws.date()}–{(we - timedelta(days=1)).date()}")
                 continue
             deliver(report, ws, we - timedelta(days=1), args.dry_run, smtp_creds,

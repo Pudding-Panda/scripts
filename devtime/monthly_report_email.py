@@ -3,7 +3,7 @@
 Monthly devtime report emailer.
 One email per month: per-client weekly breakdown plus the month total.
   python3 monthly_report_email.py --month 2026-08
-  python3 monthly_report_email.py --month 2026-08 --dry-run
+  python3 monthly_report_email.py --dry-run      # previous month
 
 Weeks are Mon-Sun, clipped to the month. Days and week boundaries are local
 (UTC-3), matching the day bucketing of the devtime server.
@@ -136,7 +136,7 @@ def format_html(month_label, first, last, month, weeks):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--month", required=True, help="YYYY-MM")
+    parser.add_argument("--month", help="YYYY-MM (default: previous month)")
     parser.add_argument("--interval", type=int, default=30)
     parser.add_argument("--tolerance", type=int, default=30)
     parser.add_argument("--tag", default="")
@@ -145,7 +145,11 @@ def main():
     args = parser.parse_args()
     exclude_machine = not args.include_machine
 
-    year, mon = (int(x) for x in args.month.split("-"))
+    if args.month:
+        year, mon = (int(x) for x in args.month.split("-"))
+    else:
+        prev = date.today().replace(day=1) - timedelta(days=1)
+        year, mon = prev.year, prev.month
     first = date(year, mon, 1)
     last = date(year, mon, calendar.monthrange(year, mon)[1])
     today = datetime.now(timezone.utc).date()
@@ -166,7 +170,7 @@ def main():
     subject = f"{args.tag + ' ' if args.tag else ''}Devtime Report: {label} — Usage {month['total_human']}"
 
     if args.dry_run:
-        path = f"/tmp/devtime-month-{args.month}.html"
+        path = f"/tmp/devtime-month-{year}-{mon:02d}.html"
         with open(path, "w") as f:
             f.write(html)
         print(f"[dry-run] {subject}")

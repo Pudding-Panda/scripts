@@ -11,13 +11,15 @@ defmodule DevtimeServer.Report do
   # fires UserPromptSubmit like a human would, so it must be filtered out or it merges
   # every block into a 24h day.
   @machine_event_types ~w(auto scheduled loop wakeup cron)
-  # A run of consecutive heartbeats whose gaps are all equal within this many seconds
-  # is a timer, not a person.
-  @default_cadence_tolerance 5
-  # Minimum number of equal gaps (so min_run + 1 heartbeats) before a run counts as a timer.
-  @default_cadence_min_run 3
-  # Gaps shorter than this are human bursts; never treat them as cadence.
+  # A chain of heartbeats whose gaps are all equal within this many seconds is a timer,
+  # not a person. Chain members need not be consecutive: several monitors or crons on one
+  # session interleave, so each timer is followed through the other beats.
+  @default_cadence_tolerance 3
+  # Minimum number of equal gaps (so min_run + 1 heartbeats) before a chain counts as a timer.
+  @default_cadence_min_run 5
+  # Periods outside this range are never treated as cadence.
   @min_cadence_s 300
+  @max_cadence_s 3 * 3600
 
   def generate(opts \\ []) do
     days = Keyword.get(opts, :days, 7)
@@ -152,9 +154,8 @@ defmodule DevtimeServer.Report do
 
   defp drop_cadence_runs(hbs, _tolerance, _min_run) when length(hbs) < 2, do: hbs
   defp drop_cadence_runs(hbs, tolerance, min_run) do
-    timestamps = Enum.map(hbs, & &1.ts_epoch)
-    deltas = Enum.zip(timestamps, tl(timestamps)) |> Enum.map(fn {a, b} -> b - a end)
-    machine = cadence_indices(deltas, tolerance, min_run)
+    ts = hbs |> Enum.map(& &1.ts_epoch) |> List.to_tuple()
+    machine = cadence_indices(ts, tolerance, min_run)
 
     hbs
     |> Enum.with_index()
@@ -162,40 +163,53 @@ defmodule DevtimeServer.Report do
     |> Enum.map(&elem(&1, 0))
   end
 
-  # Delta i sits between heartbeat i and heartbeat i+1, so a run of equal deltas
-  # marks every heartbeat it touches.
-  defp cadence_indices(deltas, tolerance, min_run) do
-    {runs, current} =
-      deltas
-      |> Enum.with_index()
-      |> Enum.reduce({[], nil}, fn {delta, i}, {runs, current} ->
-        cond do
-          delta < @min_cadence_s ->
-            {close_run(runs, current, min_run), nil}
+  # For every pair (i, j) with a plausible timer period, follow the chain forward: the next
+  # member is any heartbeat landing one period (the last gap, so slow drift is tracked)
+  # after the previous one. Chains of at least min_run gaps mark all their members.
+  defp cadence_indices(ts, tolerance, min_run) do
+    n = tuple_size(ts)
 
-          current == nil ->
-            {runs, {delta, [i]}}
+    Enum.reduce(0..(n - 2), MapSet.new(), fn i, marked ->
+      if MapSet.member?(marked, i) do
+        marked
+      else
+        ti = elem(ts, i)
 
-          true ->
-            {head, idxs} = current
+        (i + 1)..(n - 1)
+        |> Enum.reduce_while(marked, fn j, acc ->
+          d = elem(ts, j) - ti
 
-            if abs(delta - head) <= tolerance do
-              {runs, {head, [i | idxs]}}
-            else
-              {close_run(runs, current, min_run), {delta, [i]}}
-            end
-        end
-      end)
+          cond do
+            d > @max_cadence_s ->
+              {:halt, acc}
 
-    close_run(runs, current, min_run)
-    |> Enum.reduce(MapSet.new(), fn idxs, acc ->
-      Enum.reduce(idxs, acc, fn i, set -> set |> MapSet.put(i) |> MapSet.put(i + 1) end)
+            d < @min_cadence_s ->
+              {:cont, acc}
+
+            true ->
+              chain = follow_chain(ts, n, j, d, tolerance, [j, i])
+              if length(chain) - 1 >= min_run, do: {:cont, MapSet.union(acc, MapSet.new(chain))}, else: {:cont, acc}
+          end
+        end)
+      end
     end)
   end
 
-  defp close_run(runs, nil, _min_run), do: runs
-  defp close_run(runs, {_head, idxs}, min_run) do
-    if length(idxs) >= min_run, do: [idxs | runs], else: runs
+  defp follow_chain(ts, n, last, d, tolerance, chain) do
+    want = elem(ts, last) + d
+    k = lower_bound(ts, want - tolerance, 0, n)
+
+    if k < n and elem(ts, k) <= want + tolerance do
+      follow_chain(ts, n, k, elem(ts, k) - elem(ts, last), tolerance, [k | chain])
+    else
+      chain
+    end
+  end
+
+  defp lower_bound(_ts, _x, lo, hi) when lo >= hi, do: lo
+  defp lower_bound(ts, x, lo, hi) do
+    mid = div(lo + hi, 2)
+    if elem(ts, mid) < x, do: lower_bound(ts, x, mid + 1, hi), else: lower_bound(ts, x, lo, mid)
   end
 
   defp compute_blocks([], _interval_s, _tolerance_s), do: []

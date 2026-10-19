@@ -29,7 +29,7 @@ fi
 
 event_type="heartbeat"
 case "$prompt" in
-  /loop*|*"<<autonomous-loop"*|*"[loop iteration"*|*"cheduled wakeup"*)
+  /loop*|*"<<autonomous-loop"*|*"[loop iteration"*|*"cheduled wakeup"*|"<task-notification>"*)
     event_type="auto"
     ;;
 esac

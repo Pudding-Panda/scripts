@@ -14,12 +14,19 @@ defmodule DevtimeServer.Report do
   # A chain of heartbeats whose gaps are all equal within this many seconds is a timer,
   # not a person. Chain members need not be consecutive: several monitors or crons on one
   # session interleave, so each timer is followed through the other beats.
-  @default_cadence_tolerance 3
+  @default_cadence_tolerance 5
   # Minimum number of equal gaps (so min_run + 1 heartbeats) before a chain counts as a timer.
   @default_cadence_min_run 5
   # Periods outside this range are never treated as cadence.
   @min_cadence_s 300
   @max_cadence_s 3 * 3600
+  # A tick due while the agent is mid-turn fires late and the timer restarts from there.
+  # A late tick joins the chain only if the next @cadence_lookahead ticks after it line up
+  # exactly, and at most one tick in three may be late, so chains cannot wander through
+  # dense human prompting.
+  @cadence_delay_s 900
+  @cadence_lookahead 2
+  @cadence_max_delay_share 0.34
 
   def generate(opts \\ []) do
     days = Keyword.get(opts, :days, 7)
@@ -165,8 +172,8 @@ defmodule DevtimeServer.Report do
 
   # For every pair (i, j) with a plausible timer period, follow the chain forward: the next
   # member is any heartbeat landing one period (the last gap, so slow drift is tracked)
-  # after the previous one. Chains of at least min_run gaps mark all their members.
-  defp cadence_indices(ts, tolerance, min_run) do
+  # after the previous one. Chains of at least min_run exact gaps mark all their members.
+  def cadence_indices(ts, tolerance, min_run) do
     n = tuple_size(ts)
 
     Enum.reduce(0..(n - 2), MapSet.new(), fn i, marked ->
@@ -187,23 +194,53 @@ defmodule DevtimeServer.Report do
               {:cont, acc}
 
             true ->
-              chain = follow_chain(ts, n, j, d, tolerance, [j, i])
-              if length(chain) - 1 >= min_run, do: {:cont, MapSet.union(acc, MapSet.new(chain))}, else: {:cont, acc}
+              {chain, exact} = follow_chain(ts, n, j, d, tolerance, [j, i], 1, 0)
+              if exact >= min_run, do: {:cont, MapSet.union(acc, MapSet.new(chain))}, else: {:cont, acc}
           end
         end)
       end
     end)
   end
 
-  defp follow_chain(ts, n, last, d, tolerance, chain) do
+  defp follow_chain(ts, n, last, d, tolerance, chain, exact, delays) do
     want = elem(ts, last) + d
-    k = lower_bound(ts, want - tolerance, 0, n)
 
-    if k < n and elem(ts, k) <= want + tolerance do
-      follow_chain(ts, n, k, elem(ts, k) - elem(ts, last), tolerance, [k | chain])
-    else
-      chain
+    case find(ts, n, want - tolerance, want + tolerance) do
+      nil ->
+        late =
+          if delays + 1 <= @cadence_max_delay_share * (exact + @cadence_lookahead),
+            do: late_tick(ts, n, lower_bound(ts, want + tolerance, 0, n), want + @cadence_delay_s, d, tolerance)
+
+        if late,
+          do: follow_chain(ts, n, late, d, tolerance, [late | chain], exact, delays + 1),
+          else: {chain, exact}
+
+      k ->
+        follow_chain(ts, n, k, elem(ts, k) - elem(ts, last), tolerance, [k | chain], exact + 1, delays)
     end
+  end
+
+  defp late_tick(ts, n, a, limit, d, tolerance) do
+    cond do
+      a >= n or elem(ts, a) > limit -> nil
+      lines_up?(ts, n, a, d, tolerance, @cadence_lookahead) -> a
+      true -> late_tick(ts, n, a + 1, limit, d, tolerance)
+    end
+  end
+
+  defp lines_up?(_ts, _n, _last, _d, _tolerance, 0), do: true
+  defp lines_up?(ts, n, last, d, tolerance, left) do
+    want = elem(ts, last) + d
+
+    case find(ts, n, want - tolerance, want + tolerance) do
+      nil -> false
+      k -> lines_up?(ts, n, k, elem(ts, k) - elem(ts, last), tolerance, left - 1)
+    end
+  end
+
+  defp find(ts, n, lo, hi) do
+    k = lower_bound(ts, lo, 0, n)
+    if k < n and elem(ts, k) <= hi, do: k
   end
 
   defp lower_bound(_ts, _x, lo, hi) when lo >= hi, do: lo

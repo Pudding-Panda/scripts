@@ -34,14 +34,10 @@ def get_smtp_creds():
     token = open(os.path.expanduser("/root/.op_service_account_token")).read().strip()
     env = {**os.environ, "OP_SERVICE_ACCOUNT_TOKEN": token}
     raw = subprocess.check_output(
-        ["op", "item", "get", "PPD - SendGrid SMTP (puddi.ng)", "--vault", "ppanda/internal", "--fields", "notesPlain", "--reveal"],
+        ["op", "item", "get", "PPD - SendGrid SMTP (puddi.ng)", "--vault", "ppanda/internal", "--fields", "api_key", "--reveal"],
         env=env,
-    ).decode().strip().strip('"')
-    # Parse API key from notes
-    api_key = None
-    for line in raw.split("\n"):
-        if line.startswith("API Key: "):
-            api_key = line.split("API Key: ", 1)[1].strip()
+    ).decode().strip()
+    api_key = raw
     return {
         "host": "smtp.sendgrid.net",
         "port": 587,
